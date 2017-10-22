@@ -1,0 +1,7 @@
+* Train TLA
+
+Learn about TLA+: collection of exercises and attempts to learn about TLA+.
+
+* License
+
+This code is in the public domain.
