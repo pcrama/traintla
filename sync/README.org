@@ -1,0 +1,3 @@
+* File syncing
+
+Study [[http://publications.csail.mit.edu/tmp/MIT-CSAIL-TR-2005-014.pdf][File Synchronisation with Vector Time Pairs]].
