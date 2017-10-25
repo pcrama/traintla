@@ -52,32 +52,45 @@ _first_of_first_and_recurse(hd_tl, other, ht_idx, ht_len, ot_idx, ot_len) ==
     << hd_tl[ht_idx] >>
     \o _merge_sequences_internal(hd_tl, other, ht_idx + 1, ht_len, ot_idx, ot_len)
 
+_timestamp(x) == x[1]
+
+_host(x) == x[2]
+
 _merge_sequences_internal(left, right, lf_idx, lf_len, rg_idx, rg_len) ==
-    IF lf_idx > lf_len
-       THEN _end_of_seq(right, rg_idx, rg_len)
-       ELSE IF rg_idx > rg_len
-            THEN _end_of_seq(left, lf_idx, lf_len)
-            ELSE IF left[lf_idx][1] < right[rg_idx][1]
-                    THEN _first_of_first_and_recurse(
-                             left, right, lf_idx, lf_len, rg_idx, rg_len)
-                    ELSE IF left[lf_idx][1] = right[rg_idx][1]
-                            THEN IF left[lf_idx][2] < right[rg_idx][2]
-                                 THEN _first_of_first_and_recurse(
-                                          left, right, lf_idx, lf_len, rg_idx, rg_len)
-                                 ELSE IF /\ left[lf_idx][2] = right[rg_idx][2]
-                                         /\ Assert(left[lf_idx] = right[rg_idx],
+    IF lf_idx <= lf_len /\ rg_idx <= rg_len
+       \* Neither sequences are exhausted continue merging
+       THEN LET lf_elt == left[lf_idx]
+                rg_elt == right[rg_idx]
+                lf_time == _timestamp(lf_elt)
+                rg_time == _timestamp(rg_elt)
+                \* Try ordering by timestamp first
+            IN IF lf_time < rg_time
+                  THEN _first_of_first_and_recurse(
+                           left, right, lf_idx, lf_len, rg_idx, rg_len)
+                  ELSE IF lf_time > rg_time
+                       THEN _first_of_first_and_recurse(
+                                right, left, rg_idx, rg_len, lf_idx, lf_len)
+                       ELSE LET lf_host == _host(lf_elt)
+                                rg_host == _host(rg_elt)
+                                \* Same timestamps, now try ordering by host
+                            IN IF lf_host < rg_host
+                               THEN _first_of_first_and_recurse(
+                                        left, right, lf_idx, lf_len, rg_idx, rg_len)
+                               ELSE IF lf_host > rg_host
+                                    THEN _first_of_first_and_recurse(
+                                             right, left, rg_idx, rg_len, lf_idx, lf_len)
+                                    ELSE IF Assert(lf_elt = rg_elt,
                                                    "Entries should have been equal")
-                                         THEN << left[lf_idx] >>
-                                              \o _merge_sequences_internal(
-                                                  left, right,
-                                                  lf_idx + 1, lf_len,
-                                                  rg_idx + 1, rg_len)
-                                         ELSE _first_of_first_and_recurse(
-                                                  right, left,
-                                                  rg_idx, rg_len,
-                                                  lf_idx, lf_len)
-                            ELSE _first_of_first_and_recurse(
-                                     right, left, rg_idx, rg_len, lf_idx, lf_len)
+                                            THEN << lf_elt >>
+                                                 \o _merge_sequences_internal(
+                                                     left, right,
+                                                     lf_idx + 1, lf_len,
+                                                     rg_idx + 1, rg_len)
+                                            ELSE << "NOTREACHED" >>
+        \* At least one sequence is exhausted, return rest of other sequence
+        ELSE IF lf_idx > lf_len
+                THEN _end_of_seq(right, rg_idx, rg_len)
+                ELSE _end_of_seq(left, lf_idx, lf_len)
 
 \* Merge two sorted lists
 _merge_sequences(left, right) ==
