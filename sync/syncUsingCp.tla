@@ -6,7 +6,10 @@ ASSUME MAX_STEPS \in Nat \ {0, 1}
 
 (* Synchronize from a to b: if a is newer, overwrite b *)
 SyncByCp(a, b) == IF FileExists(a)
-                  THEN (IF FileExists(b) /\ b[2] >= a[2] THEN b ELSE a)
+                  THEN IF /\ FileExists(b)
+                          /\ ModificationTime(b) > ModificationTime(a)
+                          THEN b
+                          ELSE a
                   ELSE b
 
 Trace1(x) == IF PrintT(x) THEN x ELSE x
@@ -14,8 +17,8 @@ Trace1(x) == IF PrintT(x) THEN x ELSE x
 Trace2(x, y) == IF PrintT(x) THEN y ELSE y
 
 (* --algorithm modifyAndSync
-variables files = << Create(1), Create(1) >>
-        , ref = Create(1)
+variables files = << Create(<<>>, 1, 1), Create(<<>>, 1, 2) >>
+        , ref = Create(<<>>, 1, 3)
         , t = 1
         , syncLeft = Len(files)
         , syncRight = 1
@@ -44,7 +47,7 @@ begin
               ref := Delete(ref) *)
             \* end either;
           else
-            files[host] := Create(t);
+            files[host] := Create(<<>>, t, host);
             story := story \o << "create", host, t >>;
           end if;
         or
@@ -72,8 +75,8 @@ VARIABLES files, ref, t, syncLeft, syncRight, story, pc
 vars == << files, ref, t, syncLeft, syncRight, story, pc >>
 
 Init == (* Global variables *)
-        /\ files = << Create(1), Create(1) >>
-        /\ ref = Create(1)
+        /\ files = << Create(<<>>, 1, 1), Create(<<>>, 1, 2) >>
+        /\ ref = Create(<<>>, 1, 3)
         /\ t = 1
         /\ syncLeft = Len(files)
         /\ syncRight = 1
@@ -92,7 +95,7 @@ modifyAndPartialSync == /\ pc = "modifyAndPartialSync"
                                                  THEN /\ files' = [files EXCEPT ![host] = Edit(files[host], t', t')]
                                                       /\ ref' = Edit(ref, t', t')
                                                       /\ story' = Append(story, << "edit", host, t' >>)
-                                                 ELSE /\ files' = [files EXCEPT ![host] = Create(t')]
+                                                 ELSE /\ files' = [files EXCEPT ![host] = Create(<<>>, t', host)]
                                                       /\ story' = story \o << "create", host, t' >>
                                                       /\ ref' = ref
                                         \/ /\ TRUE
@@ -119,7 +122,7 @@ fullSyncRight == /\ pc = "fullSyncRight"
                             /\ syncRight' = syncRight + 1
                             /\ pc' = "fullSyncRight"
                        ELSE /\ Assert(\A i \in DOMAIN files \ {1}: files[1] = files[i], 
-                                      "Failure of assertion at line 67, column 3.")
+                                      "Failure of assertion at line 70, column 3.")
                             /\ pc' = "Done"
                             /\ UNCHANGED << files, t, syncRight >>
                  /\ UNCHANGED << ref, syncLeft, story >>
@@ -158,6 +161,6 @@ syncToRight(Op(_, _), s) ==
              ELSE Assert(FALSE, "syncToRight not implemented fully") \* Op(syncToLeft(Op, Tail(s)), s[1])
 
 NoUpdateLost == LET synced == syncToLeft(SyncByCp, syncToRight(SyncByCp, files))
-                IN \/ \A i \in DOMAIN files : synced[i] = ref
-                   \/ Trace2(story, FALSE)
+                IN \/ \A i \in DOMAIN files : SameFile(synced[i], ref)
+                   \/ Trace2(<<"This story leads to failure:", story>>, FALSE)
 ============================================================
