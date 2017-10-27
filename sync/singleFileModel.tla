@@ -13,6 +13,12 @@ EXTENDS Naturals, Sequences, TLC
  * 3. Kind of update (create, edit, delete, merge)
  *)
 
+(* Debugging utilities *)
+
+Trace1(x) == IF PrintT(x) THEN x ELSE x
+
+Trace2(x, y) == IF PrintT(x) THEN y ELSE y
+
 (* Predicates *)
 
 \* Type assertion for type invariants
@@ -23,7 +29,8 @@ IsFile(f) == /\ DOMAIN f = 1..2
                           \A oth \in {x \in DOMAIN updates: x > idx}: (
                               \/ updates[oth][1] > updates[idx][1]
                               \/ /\ updates[oth][1] = updates[idx][1]
-                                 /\ updates[oth][2] = updates[idx][2]))
+                                 /\ \/ updates[oth][2] > updates[idx][2]
+                                    \/ updates[oth] = updates[idx]))
 
 \* Internal use
 _AssertParams(file, timestamp, host) == 
@@ -96,12 +103,18 @@ _merge_sequences_internal(left, right, lf_idx, lf_len, rg_idx, rg_len) ==
 _merge_sequences(left, right) ==
     _merge_sequences_internal(left, right, 1, Len(left), 1, Len(right))
 
+_safe(x, i, l) == IF i > l THEN "N/A" ELSE x
+
 RECURSIVE _sameContent(_, _, _, _, _, _)
 _sameContent(a, b, a_idx, a_len, b_idx, b_len) ==
-    \/ (a_idx > a_len \/ b_idx > b_len)
-    \/ a[a_idx] = b[b_idx]
-    \/ (a[a_idx][3] /= "edit" /\ _sameContent(a, b, a_idx + 1, a_len, b_idx, b_len))
-    \/ (b[b_idx][3] /= "edit" /\ _sameContent(a, b, a_idx, a_len, b_idx + 1, b_len))
+    \/ (a_idx > a_len /\ b_idx > b_len)
+    \/ (a_idx \leq a_len /\ b_idx \leq b_len /\ a[a_idx] = b[b_idx])
+    \/ /\ a_idx \leq a_len
+       /\ a[a_idx][3] /= "edit"
+       /\ _sameContent(a, b, a_idx + 1, a_len, b_idx, b_len)
+    \/ /\ b_idx \leq b_len
+       /\ b[b_idx][3] /= "edit"
+       /\ _sameContent(a, b, a_idx, a_len, b_idx + 1, b_len)
 
 (* Operations on files *)
 

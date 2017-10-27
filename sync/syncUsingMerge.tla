@@ -1,20 +1,56 @@
--------------------- MODULE syncUsingCp --------------------
+------------------- MODULE syncUsingMerge ------------------
 EXTENDS TLC, Sequences, Naturals, singleFileModel
 
-CONSTANT MAX_STEPS
-ASSUME MAX_STEPS \in Nat \ {0, 1}
+CONSTANT MAX_STEPS, MAX_HOSTS
+ASSUME /\ MAX_STEPS \in Nat \ {0, 1}
+       /\ MAX_HOSTS \in Nat \ {0, 1}
 
 (* Synchronize from a to b: if a is newer, overwrite b *)
-SyncByCp(a, b) == IF FileExists(a)
-                  THEN IF /\ FileExists(b)
-                          /\ ModificationTime(b) > ModificationTime(a)
-                          THEN b
-                          ELSE a
-                  ELSE b
+SyncByMerge(a, b, timestamp, host_a, host_b) ==
+    IF FileExists(a)
+       THEN IF FileExists(b)
+               THEN Merge(b, timestamp, host_b, a, host_a)
+               ELSE a
+       ELSE b
+
+ButLast(s) == IF Len(s) > 1
+                 THEN [ i \in 1..Len(s) - 1 |-> s[i] ]
+                 ELSE <<>>
+
+Reverse(s) == LET N == Len(s) IN [ i \in 1..N |-> s[N - i + 1] ]
+
+RECURSIVE Filter(_, _), _reduce(_, _, _, _, _)
+
+_reduce(Op(_, _), def, seq, idx, len) ==
+  IF idx > len
+     THEN def
+     ELSE Op(seq[idx], _reduce(Op, def, seq, idx + 1, len))
+
+Reduce(Op(_, _), def, seq) == _reduce(Op, def, seq, 1, Len(seq))
+
+ZipWith(Op(_, _), err, left, right) ==
+    LET lf_len == Len(left)
+        rg_len == Len(right)
+    IN IF lf_len = rg_len
+          THEN [ i \in 1..lf_len |-> Op(left[i], right[i]) ]
+          ELSE err
+
+_cons(x, y) == <<x, y>>
+
+Zip(err, left, right) == ZipWith(_cons, err, left, right)
+
+Filter(Pred(_), s) ==
+    IF s = <<>>
+       THEN <<>>
+       ELSE LET hd == Head(s)
+                tl == Filter(Pred, Tail(s))
+            IN IF Pred(hd)
+                  THEN << hd >> \o tl
+                  ELSE tl
 
 (* --algorithm modifyAndSync
-variables files = << Create(<<>>, 1, 1), Create(<<>>, 1, 2) >>
-        , ref = Create(<<>>, 1, 3)
+variables files = [ i \in 1..MAX_HOSTS |-> Create(<<>>, 1, i) ]
+        , ref = Create(<<>>, 1, MAX_HOSTS + 1)
         , t = 1
         , syncLeft = Len(files)
         , syncRight = 1
@@ -27,7 +63,8 @@ begin
         either
           \* Synchronize from any other host to current host
           with otherHost \in DOMAIN files \ { host } do
-            files[host] := SyncByCp(files[otherHost], files[host]);
+            files[host] := SyncByMerge(
+                files[otherHost], files[host], t, otherHost, host);
             story := Append(story, << otherHost, "->", host >>);
           end with;
         or
@@ -43,7 +80,7 @@ begin
               ref := Delete(ref) *)
             \* end either;
           else
-            files[host] := Create(<<>>, t, host);
+            files[host] := Create(files[host], t, host);
             story := story \o << "create", host, t >>;
           end if;
         or
@@ -54,16 +91,18 @@ begin
   fullSyncLeft:
     while syncLeft > 1 do
       t := t + 1;
-      files[syncLeft - 1] := SyncByCp(files[syncLeft], files[syncLeft - 1]);
+      files[syncLeft - 1] := SyncByMerge(
+          files[syncLeft], files[syncLeft - 1], t, syncLeft, syncLeft - 1);
       syncLeft := syncLeft - 1;
     end while;
   fullSyncRight:
     while syncRight < Len(files) do
       t := t + 1;
-      files[syncRight + 1] := SyncByCp(files[syncRight], files[syncRight + 1]);
+      files[syncRight + 1] := SyncByMerge(
+          files[syncRight], files[syncRight + 1], t, syncRight, syncRight + 1);
       syncRight := syncRight + 1;
     end while;
-  assert \A i \in DOMAIN files \ {1}: files[1] = files[i]
+  assert \A i \in DOMAIN files \ {1}: SameFile(files[1], files[i])
 end algorithm *)
 \* BEGIN TRANSLATION
 VARIABLES files, ref, t, syncLeft, syncRight, story, pc
@@ -71,8 +110,8 @@ VARIABLES files, ref, t, syncLeft, syncRight, story, pc
 vars == << files, ref, t, syncLeft, syncRight, story, pc >>
 
 Init == (* Global variables *)
-        /\ files = << Create(<<>>, 1, 1), Create(<<>>, 1, 2) >>
-        /\ ref = Create(<<>>, 1, 3)
+        /\ files = [ i \in 1..MAX_HOSTS |-> Create(<<>>, 1, i) ]
+        /\ ref = Create(<<>>, 1, MAX_HOSTS + 1)
         /\ t = 1
         /\ syncLeft = Len(files)
         /\ syncRight = 1
@@ -84,14 +123,15 @@ modifyAndPartialSync == /\ pc = "modifyAndPartialSync"
                               THEN /\ t' = t + 1
                                    /\ \E host \in DOMAIN files:
                                         \/ /\ \E otherHost \in DOMAIN files \ { host }:
-                                                /\ files' = [files EXCEPT ![host] = SyncByCp(files[otherHost], files[host])]
+                                                /\ files' = [files EXCEPT ![host] =            SyncByMerge(
+                                                                                    files[otherHost], files[host], t', otherHost, host)]
                                                 /\ story' = Append(story, << otherHost, "->", host >>)
                                            /\ ref' = ref
                                         \/ /\ IF FileExists(files[host])
                                                  THEN /\ files' = [files EXCEPT ![host] = Edit(files[host], t', t')]
                                                       /\ ref' = Edit(ref, t', t')
                                                       /\ story' = Append(story, << "edit", host, t' >>)
-                                                 ELSE /\ files' = [files EXCEPT ![host] = Create(<<>>, t', host)]
+                                                 ELSE /\ files' = [files EXCEPT ![host] = Create(files[host], t', host)]
                                                       /\ story' = story \o << "create", host, t' >>
                                                       /\ ref' = ref
                                         \/ /\ TRUE
@@ -104,7 +144,8 @@ modifyAndPartialSync == /\ pc = "modifyAndPartialSync"
 fullSyncLeft == /\ pc = "fullSyncLeft"
                 /\ IF syncLeft > 1
                       THEN /\ t' = t + 1
-                           /\ files' = [files EXCEPT ![syncLeft - 1] = SyncByCp(files[syncLeft], files[syncLeft - 1])]
+                           /\ files' = [files EXCEPT ![syncLeft - 1] =                    SyncByMerge(
+                                                                       files[syncLeft], files[syncLeft - 1], t', syncLeft, syncLeft - 1)]
                            /\ syncLeft' = syncLeft - 1
                            /\ pc' = "fullSyncLeft"
                       ELSE /\ pc' = "fullSyncRight"
@@ -114,11 +155,12 @@ fullSyncLeft == /\ pc = "fullSyncLeft"
 fullSyncRight == /\ pc = "fullSyncRight"
                  /\ IF syncRight < Len(files)
                        THEN /\ t' = t + 1
-                            /\ files' = [files EXCEPT ![syncRight + 1] = SyncByCp(files[syncRight], files[syncRight + 1])]
+                            /\ files' = [files EXCEPT ![syncRight + 1] =                     SyncByMerge(
+                                                                         files[syncRight], files[syncRight + 1], t', syncRight, syncRight + 1)]
                             /\ syncRight' = syncRight + 1
                             /\ pc' = "fullSyncRight"
-                       ELSE /\ Assert(\A i \in DOMAIN files \ {1}: files[1] = files[i], 
-                                      "Failure of assertion at line 66, column 3.")
+                       ELSE /\ Assert(\A i \in DOMAIN files \ {1}: SameFile(files[1], files[i]), 
+                                      "Failure of assertion at line 105, column 3.")
                             /\ pc' = "Done"
                             /\ UNCHANGED << files, t, syncRight >>
                  /\ UNCHANGED << ref, syncLeft, story >>
@@ -136,12 +178,6 @@ Termination == <>(pc = "Done")
 TypeInvariants == /\ \A f \in DOMAIN files: IsFile(files[f])
                   /\ IsFile(ref)
 
-ButLast(s) == IF Len(s) > 1
-                 THEN [ i \in 1..Len(s) - 1 |-> s[i] ]
-                 ELSE <<>>
-
-Reverse(s) == LET N == Len(s) IN [ i \in 1..N |-> s[N - i + 1] ]
-
 syncToLeft(Op(_, _), s) ==
   IF Len(s) = 1
      THEN s[1]
@@ -156,7 +192,9 @@ syncToRight(Op(_, _), s) ==
              THEN << s[1], Op(s[1], s[2]) >>
              ELSE Assert(FALSE, "syncToRight not implemented fully") \* Op(syncToLeft(Op, Tail(s)), s[1])
 
-NoUpdateLost == LET synced == syncToLeft(SyncByCp, syncToRight(SyncByCp, files))
+currySync(a, b) == SyncByMerge(a, b, t, 1, 2)
+
+NoUpdateLost == LET synced == syncToLeft(currySync, syncToRight(currySync, files))
                 IN \/ \A i \in DOMAIN files : SameFile(synced[i], ref)
-                   \/ Trace2(<<"This story leads to failure:", story>>, FALSE)
+                   \/ Trace2(story, FALSE)
 ============================================================
