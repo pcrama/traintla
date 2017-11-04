@@ -75,9 +75,9 @@ begin
               ref := Edit(ref, t, t);
               story := Append(story, << "edit", host, t >>);
             \* or
-            (*  files[host] := Delete(files[host]);
+            (*  files[host] := Delete(files[host], t, host);
               story := story \o << "del", host, t >>;
-              ref := Delete(ref) *)
+              ref := Delete(ref, t, host) *)
             \* end either;
           else
             files[host] := Create(files[host], t, host);
