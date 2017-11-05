@@ -136,12 +136,6 @@ Termination == <>(pc = "Done")
 TypeInvariants == /\ \A f \in DOMAIN files: IsFile(files[f])
                   /\ IsFile(ref)
 
-ButLast(s) == IF Len(s) > 1
-                 THEN [ i \in 1..Len(s) - 1 |-> s[i] ]
-                 ELSE <<>>
-
-Reverse(s) == LET N == Len(s) IN [ i \in 1..N |-> s[N - i + 1] ]
-
 syncToLeft(Op(_, _), s) ==
   IF Len(s) = 1
      THEN s[1]
